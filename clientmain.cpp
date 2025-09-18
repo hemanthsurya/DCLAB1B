@@ -11,6 +11,13 @@
 
 int main(int argc, char *argv[]){
   
-  /* Do magic */
+  if (argc < 3) {
+    printf("usage: %s <host> <port>\n", argv[0]);
+  }
+
+  const char *desthost = argv[1];
+  int destport = atoi(argv[2]);
+  printf("Connecting to %s:%d\n", desthost, destport);
+  
 
 }
