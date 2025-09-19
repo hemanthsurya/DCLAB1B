@@ -1,5 +1,7 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/select.h>
@@ -7,6 +9,7 @@
 #include <unistd.h>
 #include <calcLib.h>
 #include "protocol.h"
+
 
 static ssize_t send_with_retry(int sock,
                                const void *buf, size_t len,
@@ -45,6 +48,34 @@ static ssize_t send_with_retry(int sock,
       }
   }
   return -2;
+}
+
+static void calculate(struct calcProtocol *p) {
+
+  if (p->arith == 1)
+    p->inResult = p->inValue1 + p->inValue2;
+  else if (p->arith == 2)
+    p->inResult = p->inValue1 - p->inValue2;
+  else if (p->arith == 3)
+    p->inResult = p->inValue1 * p->inValue2;
+  else if (p->arith == 4)
+    if (p->inValue2 != 0)
+      p->inResult = p->inValue1/p->inValue2;
+    else
+      p->inResult = 0;  
+  else if (p->arith == 5)
+    p->flResult = p->flValue1 + p->flValue2;
+  else if (p->arith == 6)
+    p->flResult = p->flValue1 - p->flValue2;
+  else if (p->arith == 7)
+    p->flResult = p->flValue1 * p->flValue2;    
+  else if (p->arith == 8)
+    if (p->flValue2 != 0)
+      p->flResult = p->flValue1 / p->flValue2;
+    else
+      p->flResult = 0;    
+  else
+    printf("ERROR:CALCULATING RESULT");
 }
 
 
