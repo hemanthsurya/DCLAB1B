@@ -7,6 +7,7 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <string.h>
 #include <calcLib.h>
 #include "protocol.h"
 
@@ -22,7 +23,7 @@ static ssize_t send_with_retry(int sock,
   
   for (int attempt = 1; attempt <= max_attempts; ++attempt) {
       if (sendto(sock, buf, len, 0, srv, slen) != (ssize_t)len) {
-          printf("ERROR:SENDING");
+          printf("ERROR:SENDING\n");
           return -1;
       }
 
@@ -37,13 +38,13 @@ static ssize_t send_with_retry(int sock,
       if (rv > 0) {
           ssize_t got = recvfrom(sock, rbuf, rlen, 0, from, flen);
           if (got < 0) {
-              printf("ERROR:RECEIVING");
+              printf("ERROR:RECEIVING\n");
               return -1;
           }
           return got;
       }
       if (rv < 0) {
-          printf("ERROR:FILE DESCRIPTOR");
+          printf("ERROR:FILE DESCRIPTOR\n");
           return -1;
       }
   }
@@ -75,7 +76,7 @@ static void calculate(struct calcProtocol *p) {
     else
       p->flResult = 0;    
   else
-    printf("ERROR:CALCULATING RESULT");
+    printf("ERROR:CALCULATING RESULT\n");
 }
 
 
@@ -94,5 +95,70 @@ int main(int argc, char *argv[]){
       perror("socket");
       return 1;
   }
+
+  struct sockaddr_in server;
+  memset(&server, 0, sizeof(server));
+  server.sin_family = AF_INET;
+  server.sin_port   = htons(destport);
+  if (inet_pton(AF_INET, desthost, &server.sin_addr) != 1) {
+      printf("ERROR: CONVERSION TO BINARY\n");
+      return 1;
+  }
+
+  struct calcMessage init_msg;
+  memset(&init_msg, 0, sizeof(init_msg));
+  init_msg.type          = htons(22);
+  init_msg.message       = htonl(0);
+  init_msg.protocol      = htons(17);
+  init_msg.major_version = htons(1);
+  init_msg.minor_version = htons(0);
+
+  char buf[1024];
+  struct sockaddr_storage client;
+  socklen_t client_len = sizeof(client);
+
+  ssize_t n = send_with_retry(sock,
+                              &init_msg, sizeof(init_msg),
+                              buf, sizeof(buf),
+                              (struct sockaddr*)&server, sizeof(server),
+                              (struct sockaddr*)&client, &client_len);
+  if (n == -2) {
+    printf("No reply after 3 attempts. Exit.\n");
+    return 1;
+  }
+  if (n < 0)
+    return 1;
+
+  if ((size_t)n == sizeof(struct calcMessage)) {
+    struct calcMessage msg;
+    memcpy(&msg, buf, sizeof(msg));
+    uint16_t t = ntohs(msg.type);
+    uint32_t m = ntohl(msg.message);
+    if (t == 2 && m == 2)
+      printf("Server replied: NOT OK\n");
+    else
+      printf("ERROR:UNKOWN REPLY.\n");
+    return 0;
+  }
+
+  if ((size_t)n != sizeof(struct calcProtocol)) {
+    fprintf(stderr, "ERROR WRONG SIZE OR INCORRECT PROTOCOL\n");
+    return 1;
+  }
+
+  struct calcProtocol task;
+  memcpy(&task, buf, sizeof(task));
+  task.type          = ntohs(task.type);
+  task.major_version = ntohs(task.major_version);
+  task.minor_version = ntohs(task.minor_version);
+  task.id            = ntohl(task.id);
+  task.arith         = ntohl(task.arith);
+  task.inValue1      = ntohl(task.inValue1);
+  task.inValue2      = ntohl(task.inValue2);
+  task.inResult      = ntohl(task.inResult);
+
+  printf("Assignment id=%u arith=%u\n", task.id, task.arith);
+
+  calculate(&task);
 
 }
