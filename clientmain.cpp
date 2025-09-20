@@ -161,4 +161,46 @@ int main(int argc, char *argv[]){
 
   calculate(&task);
 
+  struct calcProtocol reply = task;
+  reply.type          = htons(2);
+  reply.major_version = htons(task.major_version);
+  reply.minor_version = htons(task.minor_version);
+  reply.id            = htonl(task.id);
+  reply.arith         = htonl(task.arith);
+  reply.inValue1      = htonl(task.inValue1);
+  reply.inValue2      = htonl(task.inValue2);
+  reply.inResult      = htonl(task.inResult);
+
+  client_len = sizeof(client);
+
+  n = send_with_retry(sock,
+                      &reply, sizeof(reply),
+                      buf, sizeof(buf),
+                      (struct sockaddr*)&server, sizeof(server),
+                      (struct sockaddr*)&client, &client_len);
+
+  if (n == -2) {
+    printf("No reply after sending result.\n");
+    return 1;
+  } else if (n < 0)
+    return 1;
+
+  if ((size_t)n != sizeof(struct calcMessage)) {
+    printf("ERROR WRONG SIZE OR INCORRECT PROTOCOL\n");
+    return 1;
+  }
+
+  struct calcMessage finalmsg;
+  memcpy(&finalmsg, buf, sizeof(finalmsg));
+  uint32_t m = ntohl(finalmsg.message);
+  if (m == 1)
+    printf("Server replied: OK\n");
+  else if (m == 2) 
+    printf("Server replied: NOT OK\n");
+  else 
+    printf("Server replied with unknown message=%u\n", m);
+
+  close(sock);
+  return 0;
+
 }
