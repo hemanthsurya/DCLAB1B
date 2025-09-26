@@ -1,15 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
 
-/* You will to add includes here */
-
-
-// Included to get the support library
 #include <calcLib.h>
-
 #include "protocol.h"
 
 
@@ -39,8 +35,19 @@ void checkJobbList(int signum){
 
 int main(int argc, char *argv[]){
   
-  /* Do more magic */
+  if(argc!=2){
+    printf("Usage: %s <IP-or-DNS:PORT>\n",argv[0]);
+    return 1;
+  }
 
+  char delim[] = ":";
+  char *Desthost = strtok(argv[1], delim);
+  char *Destport = strtok(NULL, delim);
+  int port = atoi(Destport);
+  if (!Desthost || !Destport) {
+    printf("Wrong input arguments\n");
+    return 1;
+  }
 
   /* 
      Prepare to setup a reoccurring event every 10s. If it_interval, or it_value is omitted, it will be a single alarm 10s after it has been set. 
