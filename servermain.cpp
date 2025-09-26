@@ -9,8 +9,9 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-
-
+#include <sys/select.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 #include <calcLib.h>
 #include "protocol.h"
@@ -32,6 +33,39 @@ struct Job {
 };
 
 static struct Job jobs[MAX_JOBS];
+
+static void sigint_handler(int signum) { (void)signum; terminate_flag = 1; }
+static void sigalrm_handler(int signum){ (void)signum; housekeeping_flag = 1; }
+
+static int addr_equal(const struct sockaddr_storage *a, socklen_t alen,
+                      const struct sockaddr_storage *b, socklen_t blen) {
+  if (a->ss_family != b->ss_family) return 0;
+  if (a->ss_family == AF_INET) {
+    const struct sockaddr_in *ai=(const struct sockaddr_in*)a;
+    const struct sockaddr_in *bi=(const struct sockaddr_in*)b;
+    return ai->sin_port==bi->sin_port &&
+           ai->sin_addr.s_addr==bi->sin_addr.s_addr;
+  } else if (a->ss_family == AF_INET6) {
+    const struct sockaddr_in6 *ai6=(const struct sockaddr_in6*)a;
+    const struct sockaddr_in6 *bi6=(const struct sockaddr_in6*)b;
+    return ai6->sin6_port==bi6->sin6_port &&
+           memcmp(&ai6->sin6_addr,&bi6->sin6_addr,sizeof(ai6->sin6_addr))==0;
+  }
+  return 0;
+}
+
+static int find_job_addr(const struct sockaddr_storage *addr,socklen_t len){
+  for(int i=0;i<MAX_JOBS;i++)
+    if(jobs[i].active && addr_equal(&jobs[i].addr,jobs[i].addr_len,addr,len))
+      return i;
+  return -1;
+}
+
+static int alloc_job(void){
+  for(int i=0;i<MAX_JOBS;i++)
+    if(!jobs[i].active) return i;
+  return -1;
+}
 
 using namespace std;
 /* Needs to be global, to be rechable by callback and main */
