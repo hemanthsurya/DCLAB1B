@@ -4,10 +4,34 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <math.h>
+#include <netdb.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+
+
 
 #include <calcLib.h>
 #include "protocol.h"
 
+
+#define MAX_JOBS 256
+#define JOB_TIMEOUT 10
+
+volatile sig_atomic_t terminate_flag = 0;
+volatile sig_atomic_t housekeeping_flag = 0;
+
+struct Job {
+  int active;
+  struct sockaddr_storage addr;
+  socklen_t addr_len;
+  uint32_t id;
+  struct calcProtocol task; /* host-order for checking */
+  time_t assigned_at;
+};
+
+static struct Job jobs[MAX_JOBS];
 
 using namespace std;
 /* Needs to be global, to be rechable by callback and main */
@@ -28,8 +52,6 @@ void checkJobbList(int signum){
   
   return;
 }
-
-
 
 
 
