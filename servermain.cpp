@@ -12,6 +12,7 @@
 #include <sys/select.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <time.h>
 
 #include <calcLib.h>
 #include "protocol.h"
@@ -135,6 +136,89 @@ static void assign_task(int sock,const struct sockaddr_storage *addr,socklen_t l
 
   sendto(sock,&p,sizeof(p),0,(const struct sockaddr*)addr,len);
 }
+
+static int compute_int(const struct calcProtocol *t,int32_t *out){
+  switch(t->arith){
+    case 1:*out=t->inValue1+t->inValue2;return 1;
+    case 2:*out=t->inValue1-t->inValue2;return 1;
+    case 3:*out=t->inValue1*t->inValue2;return 1;
+    case 4:*out=(t->inValue2!=0)?t->inValue1/t->inValue2:0;return 1;
+    default:return 0;
+  }
+}
+
+static int compute_double(const struct calcProtocol *t,double *out){
+  switch(t->arith){
+    case 5:*out=t->flValue1+t->flValue2;return 1;
+    case 6:*out=t->flValue1-t->flValue2;return 1;
+    case 7:*out=t->flValue1*t->flValue2;return 1;
+    case 8:*out=(t->flValue2!=0.0)?t->flValue1/t->flValue2:0.0;return 1;
+    default:return 0;
+  }
+}
+
+static void handle_packet(int sock,const char *buf,ssize_t n,
+                          const struct sockaddr_storage *addr,socklen_t len){
+  if((size_t)n==sizeof(struct calcMessage)){
+    struct calcMessage m;
+    memcpy(&m,buf,sizeof(m));
+    uint16_t type=ntohs(m.type);
+    uint32_t msg=ntohl(m.message);
+    uint16_t proto=ntohs(m.protocol);
+    uint16_t maj=ntohs(m.major_version);
+    uint16_t min=ntohs(m.minor_version);
+
+    if(type==22 && msg==0 && proto==17 && maj==1 && min==0)
+      assign_task(sock,addr,len);
+    else
+      send_calc_msg(sock,addr,len,2,2);
+    return;
+  }
+
+  if((size_t)n==sizeof(struct calcProtocol)){
+    struct calcProtocol r;
+    memcpy(&r,buf,sizeof(r));
+    r.type=ntohs(r.type);
+    r.major_version=ntohs(r.major_version);
+    r.minor_version=ntohs(r.minor_version);
+    r.id=ntohl(r.id);
+    r.arith=ntohl(r.arith);
+    r.inValue1=ntohl(r.inValue1);
+    r.inValue2=ntohl(r.inValue2);
+    r.inResult=ntohl(r.inResult);
+
+    int idx=find_job_addr(addr,len);
+    if(idx<0){ send_calc_msg(sock,addr,len,2,2); return; }
+
+    if(difftime(time(NULL),jobs[idx].assigned_at)>=JOB_TIMEOUT){
+      jobs[idx].active=0;
+      send_calc_msg(sock,addr,len,2,2);
+      return;
+    }
+    if(jobs[idx].id!=r.id){
+      send_calc_msg(sock,addr,len,2,2);
+      return;
+    }
+
+    int ok=0;
+    if(r.arith<=4){
+      int32_t exp;
+      if(compute_int(&jobs[idx].task,&exp))
+        ok=(exp==r.inResult);
+    }else{
+      double exp;
+      if(compute_double(&jobs[idx].task,&exp))
+        ok=(fabs(exp-r.flResult)<1e-6);
+    }
+
+    send_calc_msg(sock,addr,len,2, ok?1:2);
+    jobs[idx].active=0;
+    return;
+  }
+
+  send_calc_msg(sock,addr,len,2,2);
+}
+
 
 using namespace std;
 /* Needs to be global, to be rechable by callback and main */
