@@ -28,7 +28,7 @@ struct Job {
   struct sockaddr_storage addr;
   socklen_t addr_len;
   uint32_t id;
-  struct calcProtocol task; /* host-order for checking */
+  struct calcProtocol task;
   time_t assigned_at;
 };
 
@@ -65,6 +65,75 @@ static int alloc_job(void){
   for(int i=0;i<MAX_JOBS;i++)
     if(!jobs[i].active) return i;
   return -1;
+}
+
+static void expire_jobs(void){
+  time_t now=time(NULL);
+  for(int i=0;i<MAX_JOBS;i++)
+    if(jobs[i].active && difftime(now,jobs[i].assigned_at)>=JOB_TIMEOUT)
+      jobs[i].active=0;
+}
+
+static void send_calc_msg(int sock,const struct sockaddr_storage *addr,socklen_t len,
+                          uint16_t type,uint32_t message){
+  struct calcMessage m;
+  memset(&m,0,sizeof(m));
+  m.type=htons(type);
+  m.message=htonl(message);
+  m.protocol=htons(17);
+  m.major_version=htons(1);
+  m.minor_version=htons(0);
+  sendto(sock,&m,sizeof(m),0,(const struct sockaddr*)addr,len);
+}
+
+static void assign_task(int sock,const struct sockaddr_storage *addr,socklen_t len){
+  int slot=alloc_job();
+  if(slot<0){ send_calc_msg(sock,addr,len,2,2); return; }
+
+  struct calcProtocol p;
+  memset(&p,0,sizeof(p));
+  p.type=htons(1);
+  p.major_version=htons(1);
+  p.minor_version=htons(0);
+
+  static uint32_t next_id=1;
+  uint32_t id=next_id++;
+  if(next_id==0) next_id=1;
+  p.id=htonl(id);
+
+  int arith=(rand()%8)+1;
+  p.arith=htonl(arith);
+
+  if(arith<=4){
+    int32_t v1=randomInt();
+    int32_t v2=randomInt();
+    p.inValue1=htonl(v1);
+    p.inValue2=htonl(v2);
+    p.inResult=htonl(0);
+  }else{
+    double f1=randomFloat();
+    double f2=randomFloat();
+    p.flValue1=f1;
+    p.flValue2=f2;
+    p.flResult=0.0;
+  }
+
+  jobs[slot].active=1;
+  memcpy(&jobs[slot].addr,addr,len);
+  jobs[slot].addr_len=len;
+  jobs[slot].id=id;
+  memcpy(&jobs[slot].task,&p,sizeof(p));
+  jobs[slot].task.type=1;
+  jobs[slot].task.major_version=1;
+  jobs[slot].task.minor_version=0;
+  jobs[slot].task.id=id;
+  jobs[slot].task.arith=arith;
+  jobs[slot].task.inValue1=ntohl(p.inValue1);
+  jobs[slot].task.inValue2=ntohl(p.inValue2);
+  jobs[slot].task.inResult=0;
+  jobs[slot].assigned_at=time(NULL);
+
+  sendto(sock,&p,sizeof(p),0,(const struct sockaddr*)addr,len);
 }
 
 using namespace std;
