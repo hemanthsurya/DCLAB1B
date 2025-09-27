@@ -254,27 +254,6 @@ static void handle_packet(int sock, const char *buf, ssize_t n,
   send_calc_msg(sock, addr, len, 2, 2);
 }
 
-using namespace std;
-/* Needs to be global, to be rechable by callback and main */
-int loopCount = 0;
-int terminate = 0;
-
-/* Call back function, will be called when the SIGALRM is raised when the timer
- * expires. */
-void checkJobbList(int signum) {
-  // As anybody can call the handler, its good coding to check the signal number
-  // that called it.
-
-  printf("Let me be, I want to sleep, loopCount = %d.\n", loopCount);
-
-  if (loopCount > 20) {
-    printf("I had enough.\n");
-    terminate = 1;
-  }
-
-  return;
-}
-
 int main(int argc, char *argv[]) {
 
   if (argc != 2) {
@@ -285,7 +264,6 @@ int main(int argc, char *argv[]) {
   char delim[] = ":";
   char *Desthost = strtok(argv[1], delim);
   char *Destport = strtok(NULL, delim);
-  int port = atoi(Destport);
   if (!Desthost || !Destport) {
     printf("Wrong input arguments\n");
     return 1;
@@ -308,7 +286,6 @@ int main(int argc, char *argv[]) {
   alarmTime.it_value.tv_sec = 10;
   alarmTime.it_value.tv_usec = 10;
 
-  signal(SIGALRM, checkJobbList);
   setitimer(ITIMER_REAL, &alarmTime, NULL);
 
   struct addrinfo hints, *res;
@@ -343,16 +320,34 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-#ifdef DEBUG
-  printf("DEBUGGER LINE ");
-#endif
+  initCalcLib();
+  memset(jobs, 0, sizeof(jobs));
 
-  while (terminate == 0) {
-    printf("This is the main loop, %d time.\n", loopCount);
-    sleep(1);
-    loopCount++;
+  printf("Server listening on %s:%s (UDP)\n", Desthost, Destport);
+
+  while (!terminate_flag) {
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(sock, &rfds);
+    struct timeval tv = {1, 0};
+    int rv = select(sock + 1, &rfds, NULL, NULL, &tv);
+    if (rv > 0 && FD_ISSET(sock, &rfds)) {
+      char buf[1024];
+      struct sockaddr_storage cli;
+      socklen_t clen = sizeof(cli);
+      ssize_t n =
+          recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&cli, &clen);
+      if (n > 0)
+        handle_packet(sock, buf, n, &cli, clen);
+    }
+    if (housekeeping_flag) {
+      expire_jobs();
+      housekeeping_flag = 0;
+    }
+    expire_jobs();
   }
 
-  printf("done.\n");
-  return (0);
+  close(sock);
+  printf("Server terminated.\n");
+  return 0;
 }
